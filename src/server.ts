@@ -2,6 +2,8 @@ import { readdirSync } from "fs";
 import express from "express";
 import { setupRoutes } from "./router";
 import path from "path";
+import cors from "cors";
+
 const folders = readdirSync(path.join(__dirname, "api"));
 for (let i = 0; i < folders.length; i++) {
     const files = readdirSync(path.join(__dirname, "api", folders[i]));
@@ -16,6 +18,9 @@ async function main() {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
+    app.use(cors({
+        origin: "https://bsaber.com",
+    }));
 
     app.disable("x-powered-by");
 
