@@ -4,8 +4,18 @@ import { IPlayerSS, IPlayerBL, IPlayerAS } from "../../types/players/players";
 import { IPlayer } from "../../types/responses/players";
 import apicache from "apicache";
 
+type LeaderboardResult = {
+    players: IPlayer[];
+    error: string | null;
+};
+
 function WeeklyChange(histories: string): number {
-    const changes = histories.split(',').map(Number);
+    const changes = histories.split(',').map(Number).filter(Number.isFinite);
+
+    if (changes.length < 8) {
+        return 0;
+    }
+
     if (changes.every((val, i, arr) => val === arr[0])) {
         return 0;
     }
@@ -16,88 +26,121 @@ function WeeklyChange(histories: string): number {
     return weekAgo - today;
 }
 
+async function fetchScoreSaberPlayers(): Promise<IPlayer[]> {
+    const playersSS = await fetch('https://scoresaber.com/api/players', {
+        method: 'GET'
+    });
+
+    if (!playersSS.ok) {
+        throw new Error(`ScoreSaber returned ${playersSS.status}`);
+    }
+
+    const playersArray = await playersSS.json();
+
+    const players: IPlayerSS[] = (playersArray.players ?? []).slice(0, 10);
+
+    return players.map((player: IPlayerSS) => {
+        return {
+            rank: player.rank,
+            avatar: player.profilePicture,
+            name: player.name,
+            pp: player.pp,
+            change: WeeklyChange(player.histories)
+        };
+    });
+}
+
+async function fetchBeatLeaderPlayers(): Promise<IPlayer[]> {
+    const playersBL = await fetch(
+        'https://api.beatleader.com/players?sortBy=pp&page=1&count=10&order=desc&mapsType=ranked&friends=false',
+        {
+            method: 'GET'
+        }
+    );
+
+    if (!playersBL.ok) {
+        throw new Error(`BeatLeader returned ${playersBL.status}`);
+    }
+
+    const playersBLArray = await playersBL.json();
+
+    const playersBLData: IPlayerBL[] = (playersBLArray.data ?? []).slice(0, 10);
+
+    return playersBLData.map((player: IPlayerBL) => {
+        return {
+            rank: player.rank,
+            avatar: player.avatar,
+            name: player.name,
+            pp: player.pp,
+            change: player.lastWeekRank - player.rank
+        };
+    });
+}
+
+async function fetchAccSaberPlayers(): Promise<IPlayer[]> {
+    const playersAS = await fetch('https://api.accsaber.com/categories/overall/standings', {
+        method: 'GET'
+    });
+
+    if (!playersAS.ok) {
+        throw new Error(`AccSaber returned ${playersAS.status}`);
+    }
+
+    const playersASArray = await playersAS.json();
+
+    const playersASData: IPlayerAS[] = (playersASArray ?? []).slice(0, 10);
+
+    return playersASData.map((player: IPlayerAS) => {
+        return {
+            rank: player.rank,
+            avatar: player.avatarUrl,
+            name: player.playerName,
+            pp: player.ap,
+            change: player.rankLastWeek - player.rank
+        };
+    });
+}
+
+async function getLeaderboard(
+    label: string,
+    fetchPlayers: () => Promise<IPlayer[]>
+): Promise<LeaderboardResult> {
+    try {
+        return {
+            players: await fetchPlayers(),
+            error: null
+        };
+    } catch (error) {
+        console.error(`${label} leaderboard failed:`, error);
+
+        return {
+            players: [],
+            error: `${label} failed to load.`
+        };
+    }
+}
+
 export class TopPlayers {
     @GET('api/players/top', apicache.middleware('10 hours'))
     async get(req: Request, res: Response) {
-        const playersSS = await fetch('https://scoresaber.com/api/players', {
-            method: 'GET'
-        });
+        const [scoresaber, beatleader, accsaber] = await Promise.all([
+            getLeaderboard('ScoreSaber', fetchScoreSaberPlayers),
+            getLeaderboard('BeatLeader', fetchBeatLeaderPlayers),
+            getLeaderboard('AccSaber', fetchAccSaberPlayers)
+        ]);
 
-        if (playersSS.status !== 200) {
-            return res.status(playersSS.status).json({
-                error: true,
-                message: 'An error occured while fetching the top players.'
-            });
-        }
+        const hasErrors = Boolean(scoresaber.error || beatleader.error || accsaber.error);
 
-        const playersArray = await playersSS.json();
+        res.status(hasErrors ? 206 : 200).json({
+            scoresaber: scoresaber.players,
+            beatleader: beatleader.players,
+            accsaber: accsaber.players,
 
-        const players: IPlayerSS[] = playersArray.players;
-        players.length = 10;
-
-        const mapPlayersSS: IPlayer[] = players.map((player: IPlayerSS) => {
-            return {
-                rank: player.rank,
-                avatar: player.profilePicture,
-                name: player.name,
-                pp: player.pp,
-                change: WeeklyChange(player.histories)
+            errors: {
+                scoresaber: scoresaber.error,
+                beatleader: beatleader.error,
+                accsaber: accsaber.error
             }
         });
-
-        const playersBL = await fetch('https://api.beatleader.xyz/players?sortBy=pp&page=1&count=10&order=desc&mapsType=ranked&friends=false', {
-            method: 'GET'
-        });
-
-        if (playersBL.status !== 200) {
-            return res.status(playersBL.status).json({
-                error: true,
-                message: 'An error occured while fetching the top players.'
-            });
-        }
-
-        const playersBLArray = await playersBL.json();
-
-        const playersBLData: IPlayerBL[] = playersBLArray.data;
-
-        const mapPlayersBL: IPlayer[] = playersBLData.map((player: IPlayerBL) => {
-            return {
-                rank: player.rank,
-                avatar: player.avatar,
-                name: player.name,
-                pp: player.pp,
-                change: player.lastWeekRank - player.rank
-            }
-        });
-
-        const playersAS = await fetch('https://api.accsaber.com/categories/overall/standings', {
-            method: 'GET'
-        });
-
-        if (playersAS.status !== 200) {
-            return res.status(playersAS.status).json({
-                error: true,
-                message: 'An error occured while fetching the top players.'
-            });
-        }
-
-        const playersASArray = await playersAS.json();
-        playersASArray.length = 10;
-
-        const mapPlayersAS: IPlayer[] = playersASArray.map((player: IPlayerAS) => {
-            return {
-                rank: player.rank,
-                avatar: player.avatarUrl,
-                name: player.playerName,
-                pp: player.ap,
-                change: player.rankLastWeek - player.rank
-            }
-        });
-
-        res.status(200).json({
-            scoresaber: mapPlayersSS,
-            beatleader: mapPlayersBL,
-            accsaber: mapPlayersAS
-        })
     }
 }
