@@ -89,9 +89,15 @@ async function fetchAccSaberPlayers(): Promise<IPlayer[]> {
     throw new Error(`AccSaber returned ${playersAS.status}`);
   }
 
-  const playersASArray = await playersAS.json();
+  const playersASResponse = (await playersAS.json()) as
+    | IPlayerAS[]
+    | { content?: IPlayerAS[] };
 
-  const playersASData: IPlayerAS[] = (playersASArray ?? []).slice(0, 10);
+  const playersASData: IPlayerAS[] = (
+    Array.isArray(playersASResponse)
+      ? playersASResponse
+      : (playersASResponse.content ?? [])
+  ).slice(0, 10);
 
   return playersASData.map((player: IPlayerAS) => {
     return {
