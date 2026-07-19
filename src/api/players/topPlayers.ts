@@ -78,7 +78,7 @@ async function fetchBeatLeaderPlayers(): Promise<IPlayer[]> {
 }
 
 async function fetchAccSaberPlayers(): Promise<IPlayer[]> {
-    const playersAS = await fetch('https://api.accsaber.com/categories/overall/standings', {
+    const playersAS = await fetch('https://api.accsaber.com/v1/leaderboards/overall', {
         method: 'GET'
     });
 
@@ -92,11 +92,11 @@ async function fetchAccSaberPlayers(): Promise<IPlayer[]> {
 
     return playersASData.map((player: IPlayerAS) => {
         return {
-            rank: player.rank,
+            rank: player.ranking,
             avatar: player.avatarUrl,
-            name: player.playerName,
-            pp: player.ap,
-            change: player.rankLastWeek - player.rank
+            name: player.userName,
+            pp: player.averageAp,
+            change: player.rankingLastWeek - player.rank
         };
     });
 }
